@@ -1,0 +1,7 @@
+[{
+  "modid": "autofish",
+  "name": "AutoFish",
+  "description": "Reels in the bobber when a fish bites, then recasts. Toggle with K; L locks left click.",
+  "version": "1.0",
+  "mcversion": "1.8.9"
+}]
