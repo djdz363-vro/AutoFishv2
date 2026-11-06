@@ -6,6 +6,7 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.projectile.EntityFishHook;
 import net.minecraft.item.ItemFishingRod;
 import net.minecraft.util.ChatComponentText;
+import net.minecraftforge.client.event.sound.PlaySoundEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
 import net.minecraftforge.fml.common.Mod;
@@ -18,9 +19,7 @@ import org.lwjgl.input.Keyboard;
 @Mod(modid = "autofish", name = "AutoFish", version = "1.0", clientSideOnly = true)
 public class AutoFishMod {
 
-    // Bobber's vertical velocity when a fish bites is about -0.2. Tune if needed.
-    private static final double BITE_MOTION_Y = -0.15D;
-    // Ticks to wait after a bite is detected before reeling / after reeling before recasting.
+    // Ticks to wait after reeling before recasting.
     private static final int RECAST_DELAY = 12;
 
     private final Minecraft mc = Minecraft.getMinecraft();
@@ -28,6 +27,7 @@ public class AutoFishMod {
     private KeyBinding holdKey;
     private boolean enabled = false;
     private boolean holdAttack = false;
+    private volatile boolean biteHeard = false;
     private int recastTimer = -1;
     private int ticksSinceCast = 0;
 
@@ -47,12 +47,30 @@ public class AutoFishMod {
             enabled = !enabled;
             recastTimer = -1;
             ticksSinceCast = 0;
+            biteHeard = false;
             msg("AutoFish " + (enabled ? "ON" : "OFF"));
         }
         if (holdKey.isPressed()) {
             holdAttack = !holdAttack;
             if (!holdAttack) setAttack(false);
             msg("Hold left click " + (holdAttack ? "ON" : "OFF"));
+        }
+    }
+
+    // A fish bite makes a splash sound at the bobber
+    @SubscribeEvent
+    public void onSound(PlaySoundEvent e) {
+        if (!enabled || e.name == null || e.sound == null) return;
+        if (!e.name.contains("splash")) return;
+        EntityPlayerSP p = mc.thePlayer;
+        if (p == null) return;
+        EntityFishHook hook = p.fishEntity;
+        if (hook == null) return;
+        double dx = e.sound.getXPosF() - hook.posX;
+        double dz = e.sound.getZPosF() - hook.posZ;
+        double dy = e.sound.getYPosF() - hook.posY;
+        if (dx * dx + dz * dz < 2.25D && Math.abs(dy) < 2.0D) {
+            biteHeard = true;
         }
     }
 
@@ -80,6 +98,7 @@ public class AutoFishMod {
 
         // Waiting to recast after a reel-in
         if (recastTimer >= 0) {
+            biteHeard = false;
             if (recastTimer-- == 0) {
                 useRod(p);
                 ticksSinceCast = 0;
@@ -88,14 +107,21 @@ public class AutoFishMod {
         }
 
         EntityFishHook hook = p.fishEntity;
-        if (hook == null) return;
+        if (hook == null) {
+            ticksSinceCast = 0;
+            biteHeard = false;
+            return;
+        }
         ticksSinceCast++;
 
         // Ignore the first second while the bobber is still flying / settling
-        if (ticksSinceCast < 20) return;
+        if (ticksSinceCast < 20) {
+            biteHeard = false;
+            return;
+        }
 
-        // Fish bite: bobber is in water and gets yanked downward
-        if (hook.isInWater() && hook.motionY < BITE_MOTION_Y) {
+        if (biteHeard) {
+            biteHeard = false;
             useRod(p);               // reel in
             recastTimer = RECAST_DELAY;
         }
@@ -111,4 +137,4 @@ public class AutoFishMod {
         if (mc.thePlayer != null)
             mc.thePlayer.addChatMessage(new ChatComponentText("[AutoFish] " + s));
     }
-          }
+}
